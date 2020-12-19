@@ -1,36 +1,41 @@
 from functools import partial
 import numpy as np
 from numpy.random import Generator, PCG64
-from scipy.fftpack import dctn, idctn
+from scipy.fft import dctn, idctn
 from cv2 import cv2
 
 
-def embed_watermark(arr:np.ndarray, seed:int, sigma:float, bit:bool) -> np.ndarray:
+def embed_watermark(arr:np.ndarray, seed:int, sigma:float, bits) -> np.ndarray:
     '''returns IDCT(DCT(arr) + bit * Pseudo Noise), where pseudo noise obyes
     gaussian distribution
     '''
     freq = dctn(arr, norm='ortho')
-    # Generate pesudo noise
     rg = Generator(PCG64(seed))
-    pn = rg.normal(size=freq.shape)
-    # Add pseudo noise to dct domain
-    bit = 1 if bit else -1
-    freq += bit * pn * sigma
+    for bit in bits:
+        # Generate pesudo noise
+        pn = rg.normal(size=freq.shape)
+        # Add pseudo noise to dct domain
+        bit = 1 if bit else -1
+        freq += bit * pn * sigma
     marked = idctn(freq, norm='ortho')
     return marked
 
 
-def recover_watermark(arr:np.ndarray, seed:int) -> float:
+def recover_watermark(arr:np.ndarray, seed:int, length:int) -> float:
     '''returns sum(DCT(arr) * Pseudo Noise)
     if return value is significantly larger than 0, watermark bit is 1
     if it's significantly smaller than 0, watermark bit is 0
     '''
     freq = dctn(arr, norm='ortho')
-    # Generate pesudo noise
     rg = Generator(PCG64(seed))
-    pn = rg.normal(size=freq.shape)
-    # Recover the embedded bit
-    return np.sum(freq * pn) / freq.size
+    bits = []
+    for i in range(0, length):
+        del i
+        # Generate pesudo noise
+        pn = rg.normal(size=freq.shape)
+        # Recover the embedded bit
+        bits.append(np.sum(freq * pn) / pn.size)
+    return bits
 
 
 def jpeg_compress(img:np.ndarray, quality:int=100):
@@ -69,31 +74,21 @@ def show_img(img, winname='window'):
 
 
 def embed_to_img(img, seed, watermark):
-    '''watermark = (watermark intensity: float, bit: bool)
+    '''watermark = (watermark intensity: float, bits: Iterable[bool])
     '''
     f_yuv = bgr2yuv(i2f(img))
-    f_yuv[:, :, 0] = embed_watermark(f_yuv[:, :, 0], seed, *watermark)
+    sigma, bits = watermark
+    f_yuv[:, :, 0] = embed_watermark(f_yuv[:, :, 0], seed, sigma, bits)
     return f2i(yuv2bgr(f_yuv))
 
 
-def recover_from_img(img, seed):
+def recover_from_img(img, seed, length):
     f_yuv = bgr2yuv(i2f(img))
-    return recover_watermark(f_yuv[:, :, 0], seed)
-
-
-def test():
-    u_bgr = cv2.imread('../example images/dog-5723334_1920.jpg')
-    seed = 73765346
-    watermark = (0.0001, True)
-    marked = embed_to_img(u_bgr, seed, watermark)
-    show_img(marked)
-    recovered = recover_from_img(marked, seed)
-    print(recovered)
+    recovered = recover_watermark(f_yuv[:, :, 0], seed, length)
     return recovered
 
 
 def main():
-    test()
     return 0
 
 
